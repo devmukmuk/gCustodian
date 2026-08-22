@@ -1,0 +1,4 @@
+# Shell scripts run as git hooks -- must never get CRLF line endings
+# regardless of a Windows checkout's core.autocrlf setting.
+*.sh text eol=lf
+tools/git-hooks/* text eol=lf
