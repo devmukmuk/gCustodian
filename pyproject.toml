@@ -1,0 +1,19 @@
+[project]
+name = "gcustodian"
+version = "0.1.0"
+description = "Personal MCP tools for managing Gmail, Google Photos, and Google Drive"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0.0",
+    "google-auth>=2.29.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-api-python-client>=2.130.0",
+]
+
+[project.scripts]
+gcustodian-authorize = "gcustodian.auth:main"
+gcustodian-server = "gcustodian.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
