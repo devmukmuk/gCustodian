@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# OAuth secrets and tokens — never commit these
+credentials/*.json
+!credentials/.gitkeep
