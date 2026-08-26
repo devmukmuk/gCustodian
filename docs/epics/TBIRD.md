@@ -23,6 +23,11 @@ full-message reads, exposed as MCP tools in `server.py`.
   `.msf` caches — refreshing or deleting it never affects Thunderbird.
 - `thunderbird_read` re-opens the specific mbox file on demand rather than
   caching bodies in the index, to keep the index small and avoid staleness.
+- `thunderbird_missionary_report` cross-references one sender's indexed
+  "Week N" updates against `GCUSTODIAN_OWNER_EMAIL`'s outgoing mail to that
+  sender, to show which weeks got a reply. The index has no To/Cc columns,
+  so the outgoing side is found by scanning the raw mbox archive directly
+  (bounded to the months the weekly updates span, for speed).
 
 ## Open work
 

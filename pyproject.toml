@@ -10,6 +10,9 @@ dependencies = [
     "google-api-python-client>=2.130.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
 [project.scripts]
 gcustodian-authorize = "gcustodian.auth:main"
 gcustodian-server = "gcustodian.server:main"

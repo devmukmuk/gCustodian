@@ -86,6 +86,20 @@ def thunderbird_list_folders() -> list[dict]:
     return thunderbird.list_folders()
 
 
+@mcp.tool()
+def thunderbird_missionary_report(name: str) -> dict:
+    """Weekly report for a missionary's "Week N" updates, cross-referenced
+    against mail GCUSTODIAN_OWNER_EMAIL sent them.
+
+    `name` matches the indexed From header (substring, case-insensitive),
+    e.g. "Jackson Webb". Run thunderbird_index first. Each week in the
+    result is marked sent=True/False depending on whether the owner sent
+    that missionary anything in the window between that week's update and
+    the next one.
+    """
+    return thunderbird.missionary_report(name)
+
+
 def main() -> None:
     mcp.run()
 
