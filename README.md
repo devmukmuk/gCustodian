@@ -56,6 +56,14 @@ This is intentionally read-only: tagging, priority, dedupe, and address
 book management are tracked as follow-up work in
 [docs/epics/TBIRD.md](docs/epics/TBIRD.md).
 
+### Missionary weekly report
+
+For a sender who sends regular "Week N" updates (e.g. a missionary), set
+`GCUSTODIAN_OWNER_EMAIL` to your own address and run `thunderbird_missionary_report`
+with their name (matched against the indexed From header, e.g. "Jackson Webb").
+It lists every distinct week found and marks whether you sent them anything
+in that week's window.
+
 ## Notes
 
 - `credentials/credentials.json` and `credentials/token.json` are gitignored —
