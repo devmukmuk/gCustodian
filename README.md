@@ -2,8 +2,10 @@
 
 Personal MCP tools for managing Gmail, Google Photos, and Google Drive from Claude Code.
 
-Currently implemented: **Gmail** (search, read, label, archive). Photos and Drive will
-follow the same pattern under `src/gcustodian/services/` as they're built out.
+Currently implemented: **Gmail** (search, read, label, archive) and a **local
+Thunderbird archive** (index, search, read — read-only). Photos and Drive
+will follow the same pattern under `src/gcustodian/services/` as they're
+built out.
 
 ## Setup
 
@@ -34,6 +36,25 @@ follow the same pattern under `src/gcustodian/services/` as they're built out.
 Requested scopes live in `src/gcustodian/auth.py::SCOPES`. Currently:
 `gmail.readonly`, `gmail.modify` (no send/delete). Add Drive/Photos scopes there
 when those services are wired up, then re-run the authorize step to re-consent.
+
+## Thunderbird local archive
+
+Read-only access to a local Thunderbird "Local Folders" mbox archive
+(e.g. a Gmail export migrated into Thunderbird). No Google auth involved.
+
+1. Set `GCUSTODIAN_THUNDERBIRD_PROFILE` to the Thunderbird profile
+   directory — the folder containing `Mail\Local Folders`, e.g.
+   `E:\archive\Thunderbird`.
+2. Run `thunderbird_index` (via the MCP tool, or
+   `python -c "from gcustodian.services import thunderbird; print(thunderbird.build_index())"`)
+   to build the local search index at `data/thunderbird_index.sqlite`
+   (gitignored, separate from the Thunderbird profile — nothing is ever
+   written back into it).
+3. Use `thunderbird_search` / `thunderbird_read` / `thunderbird_list_folders`.
+
+This is intentionally read-only: tagging, priority, dedupe, and address
+book management are tracked as follow-up work in
+[docs/epics/TBIRD.md](docs/epics/TBIRD.md).
 
 ## Notes
 
