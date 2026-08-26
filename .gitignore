@@ -9,3 +9,6 @@ build/
 # OAuth secrets and tokens — never commit these
 credentials/*.json
 !credentials/.gitkeep
+
+# Local search indexes built from external data — never commit these
+data/

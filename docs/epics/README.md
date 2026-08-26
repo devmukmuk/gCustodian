@@ -14,6 +14,7 @@ folder's `install.sh`.
 | DRIVE | Google Drive Service — `src/gcustodian/services/drive.py` (planned) | [DRIVE.md](DRIVE.md) |
 | SRV | MCP Server Wiring — `src/gcustodian/server.py`, tool registration | [SRV.md](SRV.md) |
 | DOC | Documentation & Project Tooling — `README.md`, `tools/`, `docs/` | [DOC.md](DOC.md) |
+| TBIRD | Thunderbird Local Archive — `src/gcustodian/services/thunderbird.py` | [TBIRD.md](TBIRD.md) |
 
 ## Conventions enforced by the git hooks
 
