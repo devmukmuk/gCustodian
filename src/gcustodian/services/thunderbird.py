@@ -9,21 +9,22 @@ owned by gCustodian (see INDEX_DB_PATH).
 import email
 import email.policy
 import html
+import json
 import mailbox
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 INDEX_DB_PATH = REPO_ROOT / "data" / "thunderbird_index.sqlite"
+MISSIONARY_METADATA_PATH = REPO_ROOT / "data" / "missionaries.json"
 
 _SKIP_SUFFIXES = {".msf", ".dat"}
 _MESSAGE_FACTORY = lambda f: email.message_from_binary_file(f, policy=email.policy.default)  # noqa: E731
-_WEEK_RE = re.compile(r"\bWeek\s*(\d+)\b", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"<([^<>]+)>")
 _MONTH_FOLDER_RE = re.compile(r"(\d{4})-(\d{2})$")
 
@@ -56,6 +57,30 @@ def _owner_email() -> str:
 def _index_db_path() -> Path:
     override = os.environ.get("GCUSTODIAN_THUNDERBIRD_INDEX_DB")
     return Path(override) if override else INDEX_DB_PATH
+
+
+def _missionary_metadata_path() -> Path:
+    override = os.environ.get("GCUSTODIAN_MISSIONARY_METADATA")
+    return Path(override) if override else MISSIONARY_METADATA_PATH
+
+
+def _load_missionary_metadata(email_addr: str) -> dict[str, Any]:
+    """Optional per-missionary overrides, keyed by lowercase email, e.g.
+    {"katelyn.thacker@missionary.org": {"start_date": "2026-01-05"}}.
+
+    Lives under data/ (gitignored) rather than Thunderbird's own address
+    book -- see docs/epics/TBIRD.md on why writes never touch the live
+    profile. Missing file or missing entry is not an error; callers fall
+    back to inferring the start date from mail.
+    """
+    path = _missionary_metadata_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data.get(email_addr.lower(), {})
 
 
 def _db() -> sqlite3.Connection:
@@ -331,15 +356,24 @@ def _shift_month(ym: tuple[int, int], delta: int) -> tuple[int, int]:
 
 
 def missionary_report(name: str) -> dict[str, Any]:
-    """Cross-reference one missionary's weekly "Week N" updates against mail
-    GCUSTODIAN_OWNER_EMAIL sent them, and mark which weeks got a reply.
+    """Weekly contact report for one missionary, in calendar-week windows
+    from a start date -- not tied to any subject-line convention, since
+    real missionaries use non-standard subjects (sometimes none at all).
 
     `name` is matched against the indexed From header the same way
     thunderbird_search's sender filter works (substring, case-insensitive).
     Run thunderbird_index first so the missionary's incoming mail is indexed;
     the owner's outgoing mail is found by scanning the raw archive directly
-    (the index doesn't track To/Cc), bounded to the months the weekly updates
-    span.
+    (the index doesn't track To/Cc), bounded to the months the report spans.
+
+    The start of week 1 comes from data/missionaries.json (gitignored,
+    keyed by the missionary's lowercase email, e.g.
+    {"start_date": "2026-01-05", "end_date": "2026-07-01"}) if an entry
+    exists; otherwise it falls back to the date of their earliest indexed
+    message. `end_date` bounds the last week generated; omit it (or leave
+    no metadata entry at all) to run through today. Weeks with no message
+    in either direction are still included as a row, marked blank, rather
+    than being skipped.
     """
     owner_email = _owner_email()
 
@@ -350,49 +384,43 @@ def missionary_report(name: str) -> dict[str, Any]:
     missionary_email = _extract_email(hits[0]["from"])
 
     seen: set[tuple[str, str]] = set()
-    by_week: dict[int, list[dict[str, Any]]] = {}
+    received: list[dict[str, Any]] = []
     for hit in hits:
         dedup_key = (hit["subject"], hit["date"])
         if dedup_key in seen:
             continue
         seen.add(dedup_key)
-        match = _WEEK_RE.search(hit["subject"])
-        if not match:
-            continue
-        by_week.setdefault(int(match.group(1)), []).append(
-            {"subject": hit["subject"], "date": hit["date"], "date_ts": _date_ts(hit["date"])}
-        )
+        received.append({"subject": hit["subject"], "date": hit["date"], "date_ts": _date_ts(hit["date"])})
 
-    if not by_week:
-        raise ValueError(f"No 'Week N' subject emails found from {name!r}.")
+    meta = _load_missionary_metadata(missionary_email)
 
-    # A week number can have more than one matching message (e.g. the
-    # original weekly update plus an unrelated "Re: Week N ..." thread that
-    # happens to reuse the same number) -- the earliest is treated as that
-    # week's canonical update.
-    weeks: list[dict[str, Any]] = []
-    for week_num, entries in by_week.items():
-        entries.sort(key=lambda e: (e["date_ts"] is None, e["date_ts"]))
-        canonical = entries[0]
-        weeks.append({"week": week_num, **canonical})
+    start_ts = _parse_date_bound(meta["start_date"]) if meta.get("start_date") else None
+    start_source = "metadata"
+    if start_ts is None:
+        known_ts = [m["date_ts"] for m in received if m["date_ts"] is not None]
+        if not known_ts:
+            raise ValueError(
+                f"Can't determine a start date for {name!r}: no dated messages indexed, and no "
+                f"entry in {_missionary_metadata_path()} to fall back on."
+            )
+        start_ts = min(known_ts)
+        start_source = "earliest_message"
 
-    weeks.sort(key=lambda w: w["week"])
+    end_ts = _parse_date_bound(meta["end_date"]) if meta.get("end_date") else None
+    if end_ts is None:
+        end_ts = datetime.now().timestamp()
 
-    known_ts = [w["date_ts"] for w in weeks if w["date_ts"] is not None]
-    month_bounds = None
-    if known_ts:
-        month_bounds = (
-            _shift_month(_ts_month(min(known_ts)), -1),
-            _shift_month(_ts_month(max(known_ts)), 1),
-        )
+    month_bounds = (
+        _shift_month(_ts_month(start_ts), -1),
+        _shift_month(_ts_month(end_ts), 1),
+    )
 
     root = _mail_root()
     sent_emails: list[dict[str, Any]] = []
     for folder, abs_path in _iter_mbox_files(root):
-        if month_bounds is not None:
-            month = _month_key(folder)
-            if month is not None and not (month_bounds[0] <= month <= month_bounds[1]):
-                continue
+        month = _month_key(folder)
+        if month is not None and not (month_bounds[0] <= month <= month_bounds[1]):
+            continue
         mbox = mailbox.mbox(str(abs_path), factory=_MESSAGE_FACTORY)
         try:
             for _key, msg in mbox.items():
@@ -413,38 +441,45 @@ def missionary_report(name: str) -> dict[str, Any]:
         finally:
             mbox.close()
 
-    sent_emails.sort(key=lambda m: (m["date_ts"] is None, m["date_ts"]))
-
+    week_seconds = timedelta(days=7).total_seconds()
     report_weeks: list[dict[str, Any]] = []
-    for i, week in enumerate(weeks):
-        window_start = week["date_ts"]
-        window_end = weeks[i + 1]["date_ts"] if i + 1 < len(weeks) else None
-        matched = [
-            m
-            for m in sent_emails
-            if m["date_ts"] is not None
-            and window_start is not None
-            and m["date_ts"] >= window_start
-            and (window_end is None or m["date_ts"] < window_end)
+    week_num = 1
+    window_start = start_ts
+    while window_start < end_ts:
+        window_end = window_start + week_seconds
+        received_in_week = [
+            m for m in received if m["date_ts"] is not None and window_start <= m["date_ts"] < window_end
+        ]
+        sent_in_week = [
+            m for m in sent_emails if m["date_ts"] is not None and window_start <= m["date_ts"] < window_end
         ]
         report_weeks.append(
             {
-                "week": week["week"],
-                "subject": week["subject"],
-                "date": week["date"],
-                "sent": bool(matched),
-                "sent_emails": [{"subject": m["subject"], "date": m["date"]} for m in matched],
+                "week": week_num,
+                "window_start": datetime.fromtimestamp(window_start).date().isoformat(),
+                "window_end": datetime.fromtimestamp(window_end).date().isoformat(),
+                "received": bool(received_in_week),
+                "received_emails": [{"subject": m["subject"], "date": m["date"]} for m in received_in_week],
+                "sent": bool(sent_in_week),
+                "sent_emails": [{"subject": m["subject"], "date": m["date"]} for m in sent_in_week],
             }
         )
+        week_num += 1
+        window_start = window_end
 
+    weeks_received = sum(1 for w in report_weeks if w["received"])
     weeks_sent = sum(1 for w in report_weeks if w["sent"])
+    weeks_blank = sum(1 for w in report_weeks if not w["received"] and not w["sent"])
     return {
         "missionary": {"name": name, "email": missionary_email},
         "owner_email": owner_email,
+        "start_date": datetime.fromtimestamp(start_ts).date().isoformat(),
+        "start_date_source": start_source,
         "weeks": report_weeks,
         "summary": {
             "total_weeks": len(report_weeks),
+            "weeks_received": weeks_received,
             "weeks_sent": weeks_sent,
-            "weeks_not_sent": len(report_weeks) - weeks_sent,
+            "weeks_blank": weeks_blank,
         },
     }

@@ -1,5 +1,6 @@
 """Tests for thunderbird.missionary_report against a synthetic mbox archive."""
 
+import json
 import mailbox
 from email.message import EmailMessage
 
@@ -27,36 +28,31 @@ def archive(tmp_path, monkeypatch):
     mbox = mailbox.mbox(str(inbox_path))
     mbox.lock()
     try:
-        # Missionary's weekly updates, each indexed twice (mirrors the
-        # duplicate Sent/All-Mail copies seen in the real archive).
+        # Missionary's updates, non-standard subjects, each indexed twice
+        # (mirrors the duplicate Sent/All-Mail copies seen in the real
+        # archive) -- start date is fixed via data/missionaries.json below,
+        # so week 1 runs Mon Jan 5 through Sun Jan 11.
         for _ in range(2):
             _add(
                 mbox,
                 from_addr="Test Missionary <missionary@example.org>",
                 to_addr="owner@example.com",
-                subject="Week 1",
+                subject="Prelude part 1",
                 date="Mon, 05 Jan 2026 09:00:00 -0500",
             )
             _add(
                 mbox,
                 from_addr="Test Missionary <missionary@example.org>",
                 to_addr="owner@example.com",
-                subject="Week 2",
-                date="Mon, 12 Jan 2026 09:00:00 -0500",
-            )
-            _add(
-                mbox,
-                from_addr="Test Missionary <missionary@example.org>",
-                to_addr="owner@example.com",
-                subject="Week 3",
-                date="Mon, 19 Jan 2026 09:00:00 -0500",
+                subject="hi",
+                date="Wed, 14 Jan 2026 09:00:00 -0500",
             )
         # Owner reply that falls inside week 1's window (before week 2).
         _add(
             mbox,
             from_addr="Owner <owner@example.com>",
             to_addr="Test Missionary <missionary@example.org>",
-            subject="Re: Week 1",
+            subject="Re: Prelude part 1",
             date="Tue, 06 Jan 2026 09:00:00 -0500",
         )
         # No owner reply in week 2's or week 3's window.
@@ -67,24 +63,48 @@ def archive(tmp_path, monkeypatch):
     monkeypatch.setenv("GCUSTODIAN_THUNDERBIRD_PROFILE", str(profile))
     monkeypatch.setenv("GCUSTODIAN_THUNDERBIRD_INDEX_DB", str(tmp_path / "index.sqlite"))
     monkeypatch.setenv("GCUSTODIAN_OWNER_EMAIL", "owner@example.com")
+
+    metadata_path = tmp_path / "missionaries.json"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "missionary@example.org": {
+                    "start_date": "2026-01-05",
+                    "end_date": "2026-01-26",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GCUSTODIAN_MISSIONARY_METADATA", str(metadata_path))
+
     thunderbird.build_index()
     return tmp_path
 
 
-def test_missionary_report_marks_sent_and_not_sent_weeks(archive):
+def test_missionary_report_marks_received_sent_and_blank_weeks(archive):
     report = thunderbird.missionary_report("Test Missionary")
 
     assert report["missionary"] == {"name": "Test Missionary", "email": "missionary@example.org"}
+    assert report["start_date"] == "2026-01-05"
+    assert report["start_date_source"] == "metadata"
+    # end_date 2026-01-25 bounds the report to 3 weekly windows.
     assert [w["week"] for w in report["weeks"]] == [1, 2, 3]
+    assert [w["received"] for w in report["weeks"]] == [True, True, False]
     assert [w["sent"] for w in report["weeks"]] == [True, False, False]
-    assert report["summary"] == {"total_weeks": 3, "weeks_sent": 1, "weeks_not_sent": 2}
+    assert report["summary"] == {
+        "total_weeks": 3,
+        "weeks_received": 2,
+        "weeks_sent": 1,
+        "weeks_blank": 1,
+    }
 
 
 def test_missionary_report_dedupes_duplicate_index_entries(archive):
     report = thunderbird.missionary_report("Test Missionary")
 
-    # Each week was indexed twice; the report should still list each once.
-    assert len(report["weeks"]) == 3
+    # Each update was indexed twice; the report should still list each once.
+    assert len(report["weeks"][0]["received_emails"]) == 1
 
 
 def test_missionary_report_requires_owner_email(archive, monkeypatch):
@@ -99,7 +119,7 @@ def test_missionary_report_unknown_sender_raises(archive):
         thunderbird.missionary_report("Nobody Here")
 
 
-def test_missionary_report_collapses_unrelated_thread_with_same_week_number(tmp_path, monkeypatch):
+def test_missionary_report_falls_back_to_earliest_message_without_metadata(tmp_path, monkeypatch):
     profile = tmp_path / "profile"
     inbox_path = profile / "Mail" / "Local Folders" / "Inbox"
     inbox_path.parent.mkdir(parents=True)
@@ -111,17 +131,8 @@ def test_missionary_report_collapses_unrelated_thread_with_same_week_number(tmp_
             mbox,
             from_addr="Test Missionary <missionary@example.org>",
             to_addr="owner@example.com",
-            subject="Week 5",
+            subject="settled in",
             date="Mon, 02 Feb 2026 09:00:00 -0500",
-        )
-        # An unrelated reply thread that happens to reuse "Week 5" in its
-        # subject days later -- should not become a second report row.
-        _add(
-            mbox,
-            from_addr="Test Missionary <missionary@example.org>",
-            to_addr="owner@example.com",
-            subject="Re: Week 5 - side topic",
-            date="Thu, 05 Feb 2026 09:00:00 -0500",
         )
     finally:
         mbox.unlock()
@@ -130,9 +141,12 @@ def test_missionary_report_collapses_unrelated_thread_with_same_week_number(tmp_
     monkeypatch.setenv("GCUSTODIAN_THUNDERBIRD_PROFILE", str(profile))
     monkeypatch.setenv("GCUSTODIAN_THUNDERBIRD_INDEX_DB", str(tmp_path / "index.sqlite"))
     monkeypatch.setenv("GCUSTODIAN_OWNER_EMAIL", "owner@example.com")
+    # No GCUSTODIAN_MISSIONARY_METADATA set -- points at a nonexistent
+    # default path, so the loader falls back cleanly.
+    monkeypatch.setenv("GCUSTODIAN_MISSIONARY_METADATA", str(tmp_path / "missing.json"))
     thunderbird.build_index()
 
     report = thunderbird.missionary_report("Test Missionary")
 
-    assert len(report["weeks"]) == 1
-    assert report["weeks"][0]["subject"] == "Week 5"
+    assert report["start_date"] == "2026-02-02"
+    assert report["start_date_source"] == "earliest_message"

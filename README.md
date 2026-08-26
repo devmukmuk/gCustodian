@@ -58,11 +58,28 @@ book management are tracked as follow-up work in
 
 ### Missionary weekly report
 
-For a sender who sends regular "Week N" updates (e.g. a missionary), set
-`GCUSTODIAN_OWNER_EMAIL` to your own address and run `thunderbird_missionary_report`
-with their name (matched against the indexed From header, e.g. "Jackson Webb").
-It lists every distinct week found and marks whether you sent them anything
-in that week's window.
+For a regular correspondent like a missionary, set `GCUSTODIAN_OWNER_EMAIL`
+to your own address and run `thunderbird_missionary_report` with their name
+(matched against the indexed From header, e.g. "Jackson Webb"). It builds
+one row per calendar week from a start date, marking whether they sent you
+anything (`received`) and whether you replied (`sent`) in that window —
+weeks with neither are still listed, marked blank, rather than skipped.
+This doesn't depend on any subject-line convention (real missionaries use
+inconsistent, sometimes empty, subjects).
+
+Week 1's start date comes from `data/missionaries.json` (gitignored,
+gCustodian-owned — not written into Thunderbird's own address book) keyed
+by the missionary's lowercase email:
+
+```json
+{
+  "katelyn.thacker@missionary.org": { "start_date": "2026-08-01" }
+}
+```
+
+An optional `"end_date"` bounds the last week generated (e.g. when they
+return); omit it to run through today. With no entry at all, the start
+date falls back to that missionary's earliest indexed message.
 
 ## Notes
 
