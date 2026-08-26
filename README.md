@@ -79,7 +79,9 @@ by the missionary's lowercase email:
 
 An optional `"end_date"` bounds the last week generated (e.g. when they
 return); omit it to run through today. With no entry at all, the start
-date falls back to that missionary's earliest indexed message.
+date falls back to that missionary's earliest indexed message. The
+metadata file's path can be overridden with `GCUSTODIAN_MISSIONARY_METADATA`
+(used by the test suite; leave unset for real runs).
 
 ## Notes
 
