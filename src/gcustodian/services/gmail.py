@@ -1,7 +1,10 @@
 """Gmail operations backing the MCP tools in server.py."""
 
 import base64
+import re
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape as _escape
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -95,26 +98,75 @@ def list_labels() -> list[dict[str, Any]]:
     return service.users().labels().list(userId="me").execute().get("labels", [])
 
 
+_UL_ITEM = re.compile(r"^\s*-\s+(.*)$")
+_OL_ITEM = re.compile(r"^\s*\d+\.\s+(.*)$")
+
+
+def _body_to_html(body: str) -> str:
+    """Derive a simple HTML rendering from a plain-text body.
+
+    Blank lines separate paragraphs. A block whose non-empty lines are all
+    "- " items becomes a <ul>; all "1." / "2." items becomes an <ol>.
+    Text is HTML-escaped; a single newline within a paragraph becomes <br>.
+    """
+    text = body.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+    if not text.strip():
+        return "<p></p>"
+
+    html_blocks: list[str] = []
+    for block in re.split(r"\n[ \t]*\n", text):
+        lines = [ln for ln in block.split("\n") if ln.strip()]
+        if not lines:
+            continue
+
+        ul_items = [m.group(1).strip() for ln in lines if (m := _UL_ITEM.match(ln))]
+        ol_items = [m.group(1).strip() for ln in lines if (m := _OL_ITEM.match(ln))]
+
+        if len(ul_items) == len(lines):
+            items = "".join(f"<li>{_escape(i)}</li>" for i in ul_items)
+            html_blocks.append(f"<ul>{items}</ul>")
+        elif len(ol_items) == len(lines):
+            items = "".join(f"<li>{_escape(i)}</li>" for i in ol_items)
+            html_blocks.append(f"<ol>{items}</ol>")
+        else:
+            escaped = _escape(block.strip("\n"))
+            html_blocks.append("<p>" + escaped.replace("\n", "<br>\n") + "</p>")
+
+    return "\n".join(html_blocks)
+
+
 def create_draft(
     to: str,
     subject: str,
     body: str,
     cc: str | None = None,
     bcc: str | None = None,
+    html: str | None = None,
 ) -> dict[str, Any]:
     """Create a Gmail draft. Never sends -- only calls drafts.create.
+
+    Builds a multipart/alternative message: the plain-text `body` as the
+    fallback part, plus an HTML part that Gmail renders and reflows to the
+    window. When `html` is omitted it is derived from `body` (see
+    `_body_to_html`); pass `html` to supply exact markup.
 
     The draft lands in the user's Drafts folder for them to review and send
     manually. There is deliberately no send path here.
     """
     service = _client()
-    message = MIMEText(body)
+    message = MIMEMultipart("alternative")
     message["To"] = to
     message["Subject"] = subject
     if cc:
         message["Cc"] = cc
     if bcc:
         message["Bcc"] = bcc
+
+    html_part = html if html is not None else _body_to_html(body)
+    # Least-preferred part first: Gmail renders the last (HTML) part.
+    message.attach(MIMEText(body, "plain", "utf-8"))
+    message.attach(MIMEText(html_part, "html", "utf-8"))
+
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
     draft = (
         service.users()

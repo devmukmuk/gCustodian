@@ -26,14 +26,22 @@ def gmail_create_draft(
     body: str,
     cc: str | None = None,
     bcc: str | None = None,
+    html: str | None = None,
 ) -> dict:
     """Create a Gmail draft for the user to review and send manually.
 
-    Writes the message to the user's Drafts folder only. It never sends the
-    email automatically -- there is no send capability here by design.
-    Returns the draft id and the underlying message id.
+    Writes a multipart/alternative message to the user's Drafts folder: the
+    plain-text `body` plus an HTML part Gmail renders and reflows to the
+    window. When `html` is omitted it is derived from `body` -- blank lines
+    start new paragraphs, "- " lines become bullet lists, "1."/"2." lines
+    become numbered lists. Pass `html` to supply exact markup instead.
+
+    It never sends the email automatically -- there is no send capability
+    here by design. Returns the draft id and the underlying message id.
     """
-    return gmail.create_draft(to=to, subject=subject, body=body, cc=cc, bcc=bcc)
+    return gmail.create_draft(
+        to=to, subject=subject, body=body, cc=cc, bcc=bcc, html=html
+    )
 
 
 @mcp.tool()
