@@ -13,6 +13,13 @@ one-time interactive consent flow.
 - `SCOPES` in `auth.py` is the single source of truth for what's requested.
   Adding a service means appending its scopes there and re-running
   `python -m gcustodian.auth` to re-consent.
+- Currently requested scopes:
+  - `gmail.readonly` — search and read messages.
+  - `gmail.modify` — label and archive messages.
+  - `gmail.compose` — create drafts only (no send). Added for the
+    `gmail_create_draft` tool; see [GMAIL.md](GMAIL.md). `gmail.compose`
+    grants draft create/update/delete but not sending — sending would need a
+    further, separately-scoped decision.
 - `credentials/credentials.json` (OAuth client) and `credentials/token.json`
   (cached user token) are both gitignored — never commit them.
 - `get_credentials()` raises with a clear message if `token.json` doesn't

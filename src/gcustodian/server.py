@@ -20,6 +20,23 @@ def gmail_read(message_id: str) -> dict:
 
 
 @mcp.tool()
+def gmail_create_draft(
+    to: str,
+    subject: str,
+    body: str,
+    cc: str | None = None,
+    bcc: str | None = None,
+) -> dict:
+    """Create a Gmail draft for the user to review and send manually.
+
+    Writes the message to the user's Drafts folder only. It never sends the
+    email automatically -- there is no send capability here by design.
+    Returns the draft id and the underlying message id.
+    """
+    return gmail.create_draft(to=to, subject=subject, body=body, cc=cc, bcc=bcc)
+
+
+@mcp.tool()
 def gmail_label(message_id: str, add: list[str] | None = None, remove: list[str] | None = None) -> dict:
     """Add and/or remove label ids on a message. Use gmail_list_labels to find ids."""
     return gmail.modify_labels(message_id, add=add, remove=remove)
