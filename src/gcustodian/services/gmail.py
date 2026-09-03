@@ -93,3 +93,33 @@ def archive_message(message_id: str) -> dict[str, Any]:
 def list_labels() -> list[dict[str, Any]]:
     service = _client()
     return service.users().labels().list(userId="me").execute().get("labels", [])
+
+
+def create_draft(
+    to: str,
+    subject: str,
+    body: str,
+    cc: str | None = None,
+    bcc: str | None = None,
+) -> dict[str, Any]:
+    """Create a Gmail draft. Never sends -- only calls drafts.create.
+
+    The draft lands in the user's Drafts folder for them to review and send
+    manually. There is deliberately no send path here.
+    """
+    service = _client()
+    message = MIMEText(body)
+    message["To"] = to
+    message["Subject"] = subject
+    if cc:
+        message["Cc"] = cc
+    if bcc:
+        message["Bcc"] = bcc
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+    draft = (
+        service.users()
+        .drafts()
+        .create(userId="me", body={"message": {"raw": raw}})
+        .execute()
+    )
+    return {"id": draft["id"], "message_id": draft["message"]["id"]}
